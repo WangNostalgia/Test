@@ -66,10 +66,15 @@ jobs:
       - name: Verify syntax and triple-bond upgrade
         shell: python
         run: |
+          import importlib.util
           import py_compile
-          py_compile.compile("auto_nbo_choose.py", doraise=True)
+          from pathlib import Path
 
-          import auto_nbo_choose as module
+          module_path = Path("auto_nbo_choose.py").resolve()
+          py_compile.compile(str(module_path), doraise=True)
+          spec = importlib.util.spec_from_file_location("auto_nbo_choose", module_path)
+          module = importlib.util.module_from_spec(spec)
+          spec.loader.exec_module(module)
 
           coords = {
               1: ('H', -1.5, 0.0, 0.0),
