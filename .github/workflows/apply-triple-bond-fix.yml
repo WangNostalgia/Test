@@ -1,0 +1,93 @@
+name: Apply targeted triple-bond fix
+
+on:
+  push:
+    branches:
+      - fix/repeated-bond-order-upgrade
+    paths:
+      - .github/workflows/apply-triple-bond-fix.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch-and-verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/repeated-bond-order-upgrade
+
+      - name: Apply minimal fix
+        shell: python
+        run: |
+          from pathlib import Path
+
+          path = Path("auto_nbo_choose.py")
+          text = path.read_text(encoding="utf-8")
+          old = '''    # Upgrade iteratively from largest deficit sum to smallest
+              candidates.sort(key=lambda x: -x[0])
+              for _, i, j, current_bt in candidates:
+                  if deficit.get(i, 0) <= 0 or deficit.get(j, 0) <= 0:
+                      continue  # one side already satisfied
+                  if current_bt == 'S':
+                      new_bt = 'D'
+                      delta = 1
+                  elif current_bt == 'D':
+                      new_bt = 'T'
+                      delta = 1
+                  else:
+                      continue  # already at maximum
+                  bond_map[(i, j)] = new_bt
+                  deficit[i] -= delta
+                  deficit[j] -= delta
+          '''
+          new = '''    # Upgrade iteratively from largest deficit sum to smallest.
+              # Revisit each bond while both atoms still have a deficit so that a
+              # bond can progress through both S -> D and D -> T when required.
+              candidates.sort(key=lambda x: -x[0])
+              for _, i, j, _ in candidates:
+                  while deficit.get(i, 0) > 0 and deficit.get(j, 0) > 0:
+                      current_bt = bond_map[(i, j)]
+                      if current_bt == 'S':
+                          new_bt = 'D'
+                      elif current_bt == 'D':
+                          new_bt = 'T'
+                      else:
+                          break  # already at maximum
+                      bond_map[(i, j)] = new_bt
+                      deficit[i] -= 1
+                      deficit[j] -= 1
+          '''
+          if text.count(old) != 1:
+              raise SystemExit("Expected upgrade block was not found exactly once")
+          path.write_text(text.replace(old, new), encoding="utf-8")
+
+      - name: Verify syntax and triple-bond upgrade
+        shell: python
+        run: |
+          import py_compile
+          py_compile.compile("auto_nbo_choose.py", doraise=True)
+
+          import auto_nbo_choose as module
+
+          coords = {
+              1: ('H', -1.5, 0.0, 0.0),
+              2: ('C', -0.6, 0.0, 0.0),
+              3: ('C', 0.6, 0.0, 0.0),
+              4: ('H', 1.5, 0.0, 0.0),
+          }
+          bonds = [(1, 2, 'S'), (2, 3, 'S'), (3, 4, 'S')]
+          updated, _, _ = module._assign_bond_types_valence(
+              bonds, coords, {1: 0, 2: 0, 3: 0, 4: 0}
+          )
+          assert (2, 3, 'T') in updated, updated
+
+      - name: Remove temporary workflow and commit fix
+        run: |
+          rm .github/workflows/apply-triple-bond-fix.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add auto_nbo_choose.py .github/workflows/apply-triple-bond-fix.yml
+          git commit -m "fix: allow repeated bond-order upgrades"
+          git push origin fix/repeated-bond-order-upgrade
