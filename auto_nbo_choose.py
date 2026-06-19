@@ -657,22 +657,22 @@ def _assign_bond_types_valence(all_bonds, coords, atom_lone_pairs):
         if deficit.get(i, 0) > 0 and deficit.get(j, 0) > 0:
             candidates.append((deficit[i] + deficit[j], i, j, bt))
 
-    # Upgrade iteratively from largest deficit sum to smallest
+    # Upgrade iteratively from largest deficit sum to smallest.
+    # Revisit each bond while both atoms still have a deficit so that a
+    # bond can progress through both S -> D and D -> T when required.
     candidates.sort(key=lambda x: -x[0])
-    for _, i, j, current_bt in candidates:
-        if deficit.get(i, 0) <= 0 or deficit.get(j, 0) <= 0:
-            continue  # one side already satisfied
-        if current_bt == 'S':
-            new_bt = 'D'
-            delta = 1
-        elif current_bt == 'D':
-            new_bt = 'T'
-            delta = 1
-        else:
-            continue  # already at maximum
-        bond_map[(i, j)] = new_bt
-        deficit[i] -= delta
-        deficit[j] -= delta
+    for _, i, j, _ in candidates:
+        while deficit.get(i, 0) > 0 and deficit.get(j, 0) > 0:
+            current_bt = bond_map[(i, j)]
+            if current_bt == 'S':
+                new_bt = 'D'
+            elif current_bt == 'D':
+                new_bt = 'T'
+            else:
+                break  # already at maximum
+            bond_map[(i, j)] = new_bt
+            deficit[i] -= 1
+            deficit[j] -= 1
 
     # Generate warnings for remaining deficits
     valence_warnings = []
